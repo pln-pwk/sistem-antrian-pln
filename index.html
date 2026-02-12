@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Sistem Kontrol Antrian PLN Purwakarta</title>
+<style>
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: linear-gradient(135deg, #125d72, #14a2ba);
+  color: #125d72;
+  display: flex;
+  flex-direction: column;
+}
+.header {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+  background: white;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+.header img { height: 45px; margin-right: 12px; }
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 10px 20px;
+}
+.nomor {
+  font-size: clamp(90px, 20vw, 140px);
+  font-weight: bold;
+  color: black;
+  margin: 10px 0 25px;
+}
+.buttons {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.btn {
+  width: 85px;
+  height: 85px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.25);
+}
+.btn span { font-size: 26px; margin-bottom: 4px; }
+.play { background: #ec4899; }
+.next { background: #f59e0b; }
+.setting { background: #14a2ba; }
+.info { background: #22c55e; }
+.footer {
+  background: white;
+  padding: 8px;
+  text-align: center;
+  font-size: 13px;
+}
+.disabled {
+  pointer-events: none;
+  opacity: 0.4;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+  <img src="https://upload.wikimedia.org/wikipedia/commons/9/97/Logo_PLN.png">
+  <h1>SISTEM ANTRIAN PLN PURWAKARTA</h1>
+</div>
+
+<div class="main">
+  <div class="nomor" id="nomor">-</div>
+
+  <div class="buttons">
+    <button class="btn play" onclick="panggil()"><span>▶️</span>Panggil</button>
+    <button class="btn next" onclick="lanjut()"><span>⏭</span>Lanjut</button>
+  </div>
+
+  <div class="buttons" style="margin-top:20px;">
+    <button class="btn setting" onclick="setting()"><span>⚙️</span>Setting</button>
+    <button class="btn info" onclick="info()"><span>ℹ️</span>Info</button>
+  </div>
+</div>
+
+<div class="footer">PLN Purwakarta • Sistem Antrian Digital</div>
+
+<audio id="belAudio" preload="auto">
+  <source src="bel.mp4" type="video/mp4">
+</audio>
+
+<script>
+let nomor = Number(localStorage.getItem("nomorAntrian")) || 0;
+const nomorEl = document.getElementById("nomor");
+const bel = document.getElementById("belAudio");
+let sedangMain = false;
+let bolehKontrol = false;
+
+function lockUI(lock){
+  document.querySelectorAll("button").forEach(b=>{
+    if(lock) b.classList.add("disabled");
+    else b.classList.remove("disabled");
+  });
+}
+
+function refresh(){
+  nomorEl.innerText = nomor === 0 ? "-" : nomor;
+}
+refresh();
+
+/* ===== VOICE ENGINE FIX ===== */
+let selectedVoice = null;
+let voiceReady = false;
+
+function pickVoice(){
+  const voices = speechSynthesis.getVoices();
+  if(!voices.length) return;
+
+  selectedVoice = voices.find(v =>
+    v.lang === "id-ID" &&
+    /female|perempuan|ayu|gadis|woman|google/i.test(v.name)
+  );
+
+  if(!selectedVoice){
+    selectedVoice = voices.find(v => v.lang === "id-ID");
+  }
+
+  if(!selectedVoice){
+    selectedVoice = voices.find(v =>
+      /female|woman|google/i.test(v.name)
+    );
+  }
+
+  if(selectedVoice){
+    voiceReady = true;
+    console.log("VOICE DIPAKAI:", selectedVoice.name);
+  }
+}
+
+speechSynthesis.onvoiceschanged = pickVoice;
+pickVoice();
+
+function suara(teks, selesai){
+  if(!voiceReady){
+    setTimeout(()=> suara(teks, selesai), 300);
+    return;
+  }
+
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(teks);
+  u.voice = selectedVoice;
+  u.lang = selectedVoice.lang;
+  u.rate = 0.95;
+  u.pitch = 1.3;
+  u.onend = selesai;
+  speechSynthesis.speak(u);
+}
+
+/* ===== LOGIC ===== */
+function panggil(){
+  if(!bolehKontrol || nomor === 0 || sedangMain) return;
+  sedangMain = true;
+
+  bel.pause();
+  bel.currentTime = 0;
+
+  let sudah = false;
+  function lanjutSuara(){
+    if(sudah) return;
+    sudah = true;
+    suara("Nomor antrian " + nomor + ", silakan menuju loket pelayanan",
+      ()=>{ sedangMain = false; });
+  }
+
+  bel.onended = lanjutSuara;
+  bel.onerror = lanjutSuara;
+  bel.play().catch(lanjutSuara);
+}
+
+function lanjut(){
+  if(!bolehKontrol || sedangMain) return;
+  nomor++;
+  localStorage.setItem("nomorAntrian", nomor);
+  refresh();
+  panggil();
+  if(window.kirimFirebase) window.kirimFirebase(nomor);
+}
+
+function setting(){
+  if(!bolehKontrol || sedangMain) return;
+  const awal = prompt("Masukkan nomor awal:", nomor || 1);
+  if(awal !== null && !isNaN(awal)){
+    nomor = Number(awal);
+    localStorage.setItem("nomorAntrian", nomor);
+    refresh();
+    if(window.kirimFirebase) window.kirimFirebase(nomor);
+  }
+}
+
+function info(){
+  alert("SISTEM ANTRIAN PLN PURWAKARTA\n\nAplikasi ini digunakan oleh petugas loket.");
+}
+</script>
+
+<!-- ===== FIREBASE + PIN ===== -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBjyq3YZUXhkufKELDGknIl240rA1pNai4",
+  authDomain: "sistem-antrian-pln-pwk-kota.firebaseapp.com",
+  databaseURL: "https://sistem-antrian-pln-pwk-kota-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "sistem-antrian-pln-pwk-kota",
+  storageBucket: "sistem-antrian-pln-pwk-kota.firebasestorage.app",
+  messagingSenderId: "170815122877",
+  appId: "1:170815122877:web:0abdf259e2aa64d8c3b6d4"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const nomorRef = ref(db, "antrian/nomor");
+const pinRef = ref(db, "config/adminPin");
+
+async function cekPIN(){
+  const pin = prompt("Masukkan PIN Admin:");
+  const snap = await get(pinRef);
+  if(!snap.exists() || pin !== snap.val()){
+    alert("PIN salah!");
+    lockUI(true);
+  } else {
+    bolehKontrol = true;
+    lockUI(false);
+  }
+}
+cekPIN();
+
+onValue(nomorRef, (snapshot)=>{
+  const data = snapshot.val();
+  if(data !== null){
+    nomor = data;
+    localStorage.setItem("nomorAntrian", nomor);
+    refresh();
+  }
+});
+
+window.kirimFirebase = function(n){
+  set(nomorRef, n);
+};
+</script>
+
+</body>
+</html>
