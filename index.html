@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Sistem Kontrol Antrian PLN Purwakarta</title>
+
+<style>
+html,body{height:100%}
+body{
+margin:0;
+font-family:Arial,sans-serif;
+background:linear-gradient(135deg,#125d72,#14a2ba);
+display:flex;
+flex-direction:column;
+}
+
+.header{
+display:flex;
+align-items:center;
+padding:14px 20px;
+background:white;
+box-shadow:0 4px 10px rgba(0,0,0,.15);
+}
+
+.header img{height:45px;margin-right:12px}
+
+.main{
+flex:1;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+text-align:center;
+}
+
+.nomor{
+font-size:clamp(90px,20vw,140px);
+font-weight:bold;
+margin:20px 0;
+}
+
+.buttons{
+display:flex;
+gap:20px;
+flex-wrap:wrap;
+justify-content:center;
+}
+
+.btn{
+width:85px;
+height:85px;
+border-radius:50%;
+border:none;
+cursor:pointer;
+color:white;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+font-size:13px;
+box-shadow:0 10px 20px rgba(0,0,0,.25);
+}
+
+.btn span{font-size:26px;margin-bottom:4px}
+
+.play{background:#ec4899}
+.next{background:#f59e0b}
+.setting{background:#14a2ba}
+.info{background:#22c55e}
+
+.footer{
+background:white;
+padding:8px;
+text-align:center;
+font-size:13px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+<img src="https://upload.wikimedia.org/wikipedia/commons/9/97/Logo_PLN.png">
+<h2>SISTEM ANTRIAN PLN PURWAKARTA</h2>
+</div>
+
+<div class="main">
+
+<div class="nomor" id="nomor">-</div>
+
+<div class="buttons">
+<button class="btn play" id="btnPanggil"><span>▶️</span>Panggil</button>
+<button class="btn next" id="btnLanjut"><span>⏭</span>Lanjut</button>
+</div>
+
+<div class="buttons" style="margin-top:20px;">
+<button class="btn setting" id="btnSetting"><span>⚙️</span>Setting</button>
+<button class="btn info" id="btnInfo"><span>ℹ️</span>Info</button>
+</div>
+
+</div>
+
+<div class="footer">PLN Purwakarta • Sistem Antrian Digital</div>
+
+<audio id="belAudio" preload="auto">
+<source src="BEL.mp4" type="audio/mp4">
+</audio>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+
+/* FIREBASE */
+const firebaseConfig={
+ apiKey:"AIzaSyBjyq3YZUXhkufKELDGknIl240rA1pNai4",
+ authDomain:"sistem-antrian-pln-pwk-kota.firebaseapp.com",
+ databaseURL:"https://sistem-antrian-pln-pwk-kota-default-rtdb.asia-southeast1.firebasedatabase.app"
+};
+
+const app=initializeApp(firebaseConfig);
+const db=getDatabase(app);
+
+const nomorRef=ref(db,"system/antrian/current");
+const layarRef=ref(db,"system/layar");
+const pinRef=ref(db,"system/config/adminPin");
+
+/* STATE */
+let nomor=0;
+let isRunning=false;
+let bolehKontrol=false;
+let voicesLoaded=false;
+
+const nomorEl=document.getElementById("nomor");
+const bel=document.getElementById("belAudio");
+
+/* LOAD VOICES */
+function loadVoices(){
+ if(speechSynthesis.getVoices().length>0){
+  voicesLoaded=true;
+ }
+}
+speechSynthesis.onvoiceschanged=loadVoices;
+loadVoices();
+
+/* ===== PILIH SUARA PEREMPUAN LEBIH AKURAT ===== */
+function getFemaleVoice(lang){
+
+ const voices=speechSynthesis.getVoices();
+
+ // PRIORITAS female by known female names
+ const femalePriority = {
+  "id": ["female","google indonesia","indonesia","zira","ayu"],
+  "en": ["female","zira","samantha","aria","google us english","woman"]
+ };
+
+ const list=femalePriority[lang]||[];
+
+ // Cari berdasarkan keyword female
+ let voice=voices.find(v=>
+  v.lang.toLowerCase().startsWith(lang) &&
+  list.some(k=>v.name.toLowerCase().includes(k))
+ );
+
+ // fallback: voice pertama sesuai bahasa
+ if(!voice){
+  voice=voices.find(v=>v.lang.toLowerCase().startsWith(lang));
+ }
+
+ return voice||null;
+}
+
+/* UI */
+function refresh(){
+ nomorEl.innerText=nomor===0?"-":nomor.toString().padStart(3,'0');
+}
+
+function lockUI(state){
+ document.querySelectorAll("button").forEach(b=>{
+  b.disabled=state;
+  b.style.opacity=state?0.6:1;
+ });
+}
+
+function delay(ms){
+ return new Promise(r=>setTimeout(r,ms));
+}
+
+/* BEL */
+function playBel(){
+ return new Promise(resolve=>{
+  bel.pause();
+  bel.currentTime=0;
+  bel.onended=resolve;
+  bel.play().catch(()=>setTimeout(resolve,1500));
+ });
+}
+
+/* SPEAK */
+function speak(text,langCode){
+ return new Promise(resolve=>{
+
+  speechSynthesis.cancel();
+
+  const utter=new SpeechSynthesisUtterance(text);
+  utter.lang=langCode;
+  utter.rate=0.9;      // natural speed
+  utter.pitch=1.1;     // slightly feminine
+
+  const shortLang=langCode.split("-")[0];
+  const femaleVoice=getFemaleVoice(shortLang);
+
+  if(femaleVoice){
+   utter.voice=femaleVoice;
+  }
+
+  utter.onend=resolve;
+  utter.onerror=resolve;
+
+  speechSynthesis.speak(utter);
+ });
+}
+
+/* ENGINE */
+async function enginePanggil(){
+
+ if(!bolehKontrol||isRunning||nomor===0) return;
+
+ isRunning=true;
+ lockUI(true);
+
+ try{
+
+  await set(layarRef,{
+   nomor:nomor.toString().padStart(3,'0'),
+   show:true,
+   updatedAt:Date.now()
+  });
+
+  await playBel();
+  await delay(400);
+
+  // INDONESIA - PEREMPUAN
+  await speak("Nomor antrian "+nomor+", silakan menuju loket pelayanan","id-ID");
+
+  await delay(700);
+
+  // ENGLISH - PEREMPUAN
+  await speak("Queue number "+nomor+", please proceed to the service counter","en-US");
+
+ }catch(e){
+  console.log(e);
+ }
+
+ isRunning=false;
+ lockUI(false);
+}
+
+/* BUTTON */
+document.getElementById("btnPanggil").onclick=enginePanggil;
+
+document.getElementById("btnLanjut").onclick=async()=>{
+ if(!bolehKontrol||isRunning) return;
+ nomor++;
+ await set(nomorRef,nomor);
+ refresh();
+ await enginePanggil();
+};
+
+document.getElementById("btnSetting").onclick=async()=>{
+ if(!bolehKontrol||isRunning) return;
+ const awal=prompt("Masukkan nomor awal:",nomor||1);
+ if(awal!==null&&!isNaN(awal)){
+  nomor=Number(awal);
+  await set(nomorRef,nomor);
+  refresh();
+ }
+};
+
+document.getElementById("btnInfo").onclick=()=>{
+ alert("SISTEM ANTRIAN PLN PURWAKARTA\nVersi Final - Full Female Voice Stabil");
+};
+
+/* SYNC */
+onValue(nomorRef,snap=>{
+ if(snap.exists()){
+  nomor=snap.val();
+  refresh();
+ }
+});
+
+/* LOGIN PIN */
+async function cekPIN(){
+ const pin=prompt("Masukkan PIN Admin:");
+ const snap=await get(pinRef);
+
+ if(!snap.exists()||pin!==snap.val()){
+  alert("PIN salah!");
+  lockUI(true);
+ }else{
+  bolehKontrol=true;
+  lockUI(false);
+ }
+}
+cekPIN();
+
+/* UNLOCK AUDIO */
+document.body.addEventListener("click",()=>{
+ bel.play().then(()=>bel.pause()).catch(()=>{});
+ speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
+},{once:true});
+
+refresh();
+</script>
+
+</body>
+</html>

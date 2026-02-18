@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>TV Antrian PLN Purwakarta</title>
+
+<style>
+*{box-sizing:border-box;}
+html,body{
+  margin:0;
+  height:100%;
+  font-family:'Segoe UI',Arial,sans-serif;
+  overflow:hidden;
+  background:#0c3c4a;
+  color:white;
+}
+
+/* VIDEO */
+#videoBG{
+  position:fixed;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  z-index:1;
+  filter:brightness(60%);
+}
+
+/* OVERLAY */
+#overlay{
+  position:absolute;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  z-index:5;
+  background:linear-gradient(135deg,rgba(12,60,74,.95),rgba(20,162,186,.85));
+  backdrop-filter:blur(4px);
+  opacity:0;
+  transition:.4s ease;
+}
+
+#overlay.active{
+  opacity:1;
+}
+
+/* HEADER */
+.header{
+  position:relative;
+  flex:0 0 auto;
+  display:flex;
+  justify-content:center; /* BENAR-BENAR CENTER */
+  align-items:center;
+  padding:1.2vh 3vw;
+  background:rgba(0,0,0,.25);
+}
+
+.header img{
+  position:absolute;
+  object-fit:contain;
+}
+
+.header img:first-child{
+  left:3vw;
+  height:5vh;
+}
+
+.header img:last-child{
+  right:3vw;
+  height:6vh;
+}
+
+.header-center{
+  text-align:center;
+  font-size:1.6vh;
+  line-height:1.6;
+}
+
+.header-center strong{
+  font-size:2.4vh;
+  letter-spacing:.3vh;
+}
+
+.header-center .alamat-en{
+  font-size:1.3vh;
+  opacity:.8;
+}
+
+
+/* MARQUEE */
+.marquee{
+  flex:0 0 auto;
+  background:rgba(255,255,255,.08);
+  overflow:hidden;
+  white-space:nowrap;
+  padding:1vh 0;
+}
+
+.marquee-track{
+  display:inline-block;
+  padding-left:100%;
+  animation:scroll 30s linear infinite;
+  font-size:2vh;
+}
+
+@keyframes scroll{
+  from{transform:translateX(0);}
+  to{transform:translateX(-100%);}
+}
+
+/* MAIN */
+.main{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  text-align:center;
+}
+
+.main h1{
+  font-size:5vh;
+  letter-spacing:.8vh;
+  margin:0;
+}
+
+.main .sub{
+  font-size:3.5vh;
+  color:#c8f4ff;
+  margin-bottom:2vh;
+}
+
+/* === PERBAIKAN NOMOR (TIDAK GLITCH) === */
+.nomor{
+  font-size:22vh;
+  font-weight:bold;
+  color:#ffe600;
+  text-shadow:0 0 3vh rgba(255,230,0,.9);
+  opacity:0;
+  transform:scale(.9);
+  transition:.4s ease;
+}
+
+.nomor.show{
+  opacity:1;
+  transform:scale(1);
+}
+
+.status{
+  margin-top:2vh;
+  font-size:3vh;
+}
+
+.status span{
+  font-size:1.8vh;
+  color:#d7f7ff;
+}
+
+/* DATETIME */
+.datetime{
+  margin-top:1.5vh;
+  font-size:2.2vh;
+  letter-spacing:.1vh;
+}
+
+.datetime .en{
+  font-size:1.6vh;
+  opacity:.85;
+}
+
+/* FOOTER */
+.footer{
+  flex:0 0 auto;
+  background:#ffe600;
+  color:#08333f;
+  text-align:center;
+  padding:1.5vh 0;
+  font-size:2.2vh;
+  font-weight:bold;
+}
+</style>
+</head>
+
+<body>
+
+<video id="videoBG" autoplay loop playsinline>
+  <source src="pln.mp4" type="video/mp4">
+</video>
+
+<div id="overlay">
+
+<div class="header">
+  <img src="https://upload.wikimedia.org/wikipedia/commons/9/90/Danantara_Indonesia_%28no_SW%29.svg">
+
+  <div class="header-center">
+    <strong>PLN PURWAKARTA</strong><br>
+    Jl. Singawinata, Nagri Tengah, Purwakarta<br>
+    <div class="alamat-en">
+      Singawinata Street, Nagri Tengah, Purwakarta
+    </div>
+  </div>
+
+  <img src="https://upload.wikimedia.org/wikipedia/commons/9/97/Logo_PLN.png">
+</div>
+
+<div class="marquee">
+  <div class="marquee-track">
+    Jangan lupa membawa KTP & ID Pelanggan • 
+    Layanan tutup pukul 15.00 WIB • 
+    Terima kasih telah menunggu • 
+    Please bring your ID card • 
+    Service closes at 3 PM • 
+    Thank you for waiting •
+  </div>
+</div>
+
+<div class="main">
+  <h1>NOMOR ANTRIAN</h1>
+  <div class="sub">QUEUE NUMBER</div>
+
+  <div class="nomor" id="nomor">-</div>
+
+  <div class="status">
+    Sedang Dipanggil<br>
+    <span>Now Serving</span>
+  </div>
+
+  <div class="datetime">
+    <div id="tanggalID"></div>
+    <div id="tanggalEN" class="en"></div>
+  </div>
+
+</div>
+
+<div class="footer">
+⚡ Listrik untuk Kehidupan yang Lebih Baik ⚡<br>
+Electricity for a Better Life
+</div>
+
+</div>
+
+<!-- AUDIO SYSTEM -->
+<audio id="bell" src="bell.mp3"></audio>
+<audio id="voiceID" src="panggilan-id.mp3"></audio>
+<audio id="voiceEN" src="panggilan-en.mp3"></audio>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+
+/* FIREBASE */
+const app = initializeApp({
+ apiKey:"AIzaSyBjyq3YZUXhkufKELDGknIl240rA1pNai4",
+ authDomain:"sistem-antrian-pln-pwk-kota.firebaseapp.com",
+ databaseURL:"https://sistem-antrian-pln-pwk-kota-default-rtdb.asia-southeast1.firebasedatabase.app"
+});
+
+const db = getDatabase(app);
+const layarRef = ref(db,"system/layar");
+
+/* ELEMENT */
+const overlay=document.getElementById("overlay");
+const elNomor=document.getElementById("nomor");
+const video=document.getElementById("videoBG");
+const bell=document.getElementById("bell");
+const voiceID=document.getElementById("voiceID");
+const voiceEN=document.getElementById("voiceEN");
+
+let timerReset=null;
+let sedang=false;
+
+/* ============================= */
+/* UPDATE TANGGAL & JAM */
+/* ============================= */
+function updateWaktu(){
+  const now=new Date();
+
+  const id=now.toLocaleString("id-ID",{
+    weekday:"long",
+    year:"numeric",
+    month:"long",
+    day:"numeric",
+    hour:"2-digit",
+    minute:"2-digit",
+    second:"2-digit"
+  });
+
+  const en=now.toLocaleString("en-US",{
+    weekday:"long",
+    year:"numeric",
+    month:"long",
+    day:"numeric",
+    hour:"2-digit",
+    minute:"2-digit",
+    second:"2-digit"
+  });
+
+  document.getElementById("tanggalID").textContent=id;
+  document.getElementById("tanggalEN").textContent=en;
+}
+setInterval(updateWaktu,1000);
+updateWaktu();
+
+/* ============================= */
+/* UNLOCK AUDIO */
+/* ============================= */
+document.body.addEventListener("click",()=>{
+ video.muted=false;
+ video.play().catch(()=>{});
+},{once:true});
+
+video.play().catch(()=>{});
+
+/* ============================= */
+/* RESET KE VIDEO */
+/* ============================= */
+function resetKeVideo(){
+ clearTimeout(timerReset);
+ elNomor.classList.remove("show");
+ overlay.classList.remove("active");
+ video.currentTime=0;
+ video.play().catch(()=>{});
+ sedang=false;
+}
+
+/* ============================= */
+/* TAMPILKAN NOMOR */
+/* ============================= */
+async function tampilkan(data){
+
+ sedang=true;
+
+ overlay.classList.add("active");
+ video.pause();
+
+ elNomor.textContent=data.nomor;
+ setTimeout(()=>elNomor.classList.add("show"),150);
+
+ try{
+   bell.currentTime=0;
+   await bell.play();
+   await new Promise(r=>bell.onended=r);
+
+   voiceID.currentTime=0;
+   await voiceID.play();
+   await new Promise(r=>voiceID.onended=r);
+
+   voiceEN.currentTime=0;
+   await voiceEN.play();
+   await new Promise(r=>voiceEN.onended=r);
+
+ }catch(e){
+   console.log("Audio error:",e);
+ }
+
+ /* Gunakan durasi dari kontrol */
+ const durasi = data.durasi || 15000;
+
+ timerReset=setTimeout(()=>{
+   resetKeVideo();
+ },durasi);
+}
+
+/* ============================= */
+/* REALTIME LISTENER */
+/* ============================= */
+onValue(layarRef,(snap)=>{
+ const data=snap.val();
+ if(!data) return;
+
+ if(data.show===true && data.nomor){
+   tampilkan(data);
+ }else{
+   resetKeVideo();
+ }
+});
+</script>
+
+
+</body>
+</html>
