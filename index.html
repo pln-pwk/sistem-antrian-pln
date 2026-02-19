@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Sistem Kontrol Antrian PLN Purwakarta</title>
+
+<style>
+html,body{height:100%}
+body{
+margin:0;
+font-family:Arial,sans-serif;
+background:linear-gradient(135deg,#125d72,#14a2ba);
+display:flex;
+flex-direction:column;
+}
+.header{
+display:flex;
+align-items:center;
+padding:14px 20px;
+background:white;
+box-shadow:0 4px 10px rgba(0,0,0,.15);
+}
+.header img{height:45px;margin-right:12px}
+.main{
+flex:1;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+text-align:center;
+}
+.nomor{
+font-size:clamp(90px,20vw,140px);
+font-weight:bold;
+margin:20px 0;
+}
+.buttons{
+display:flex;
+gap:20px;
+flex-wrap:wrap;
+justify-content:center;
+}
+.btn{
+width:85px;
+height:85px;
+border-radius:50%;
+border:none;
+cursor:pointer;
+color:white;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+font-size:13px;
+box-shadow:0 10px 20px rgba(0,0,0,.25);
+}
+.btn span{font-size:26px;margin-bottom:4px}
+.play{background:#ec4899}
+.next{background:#f59e0b}
+.setting{background:#14a2ba}
+.info{background:#22c55e}
+.footer{
+background:white;
+padding:8px;
+text-align:center;
+font-size:13px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+<img src="https://upload.wikimedia.org/wikipedia/commons/9/97/Logo_PLN.png">
+<h2>SISTEM ANTRIAN PLN PURWAKARTA</h2>
+</div>
+
+<div class="main">
+<div class="nomor" id="nomor">-</div>
+
+<div class="buttons">
+<button class="btn play" id="btnPanggil"><span>▶️</span>Panggil</button>
+<button class="btn next" id="btnLanjut"><span>⏭</span>Lanjut</button>
+</div>
+
+<div class="buttons" style="margin-top:20px;">
+<button class="btn setting" id="btnSetting"><span>⚙️</span>Setting</button>
+<button class="btn info" id="btnInfo"><span>ℹ️</span>Info</button>
+</div>
+</div>
+
+<div class="footer">PLN Purwakarta • Sistem Antrian Digital</div>
+
+<audio id="belAudio" src="bel.mp3" preload="auto"></audio>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+
+/* FIREBASE */
+const firebaseConfig={
+ apiKey:"AIzaSyBjyq3YZUXhkufKELDGknIl240rA1pNai4",
+ authDomain:"sistem-antrian-pln-pwk-kota.firebaseapp.com",
+ databaseURL:"https://sistem-antrian-pln-pwk-kota-default-rtdb.asia-southeast1.firebasedatabase.app"
+};
+
+const app=initializeApp(firebaseConfig);
+const db=getDatabase(app);
+
+const nomorRef=ref(db,"system/antrian/current");
+const layarRef=ref(db,"system/layar");
+const pinRef=ref(db,"system/config/adminPin");
+
+let nomor=0;
+let isRunning=false;
+let bolehKontrol=false;
+
+const nomorEl=document.getElementById("nomor");
+const bel=document.getElementById("belAudio");
+
+/* ===== AUDIO GLOBAL UNLOCK ===== */
+let audioUnlocked=false;
+
+async function unlockAllAudio(){
+ if(audioUnlocked) return;
+ audioUnlocked=true;
+
+ // Unlock audio context
+ const ctx=new (window.AudioContext||window.webkitAudioContext)();
+ await ctx.resume();
+
+ // Unlock bel
+ try{
+   await bel.play();
+   bel.pause();
+   bel.currentTime=0;
+ }catch(e){}
+
+ // Unlock speech
+ speechSynthesis.cancel();
+ speechSynthesis.speak(new SpeechSynthesisUtterance(" "));
+}
+
+document.addEventListener("click",unlockAllAudio);
+
+/* ===== UI ===== */
+function refresh(){
+ nomorEl.innerText=nomor===0?"-":nomor.toString().padStart(3,'0');
+}
+
+function lockUI(state){
+ document.querySelectorAll("button").forEach(b=>{
+  b.disabled=state;
+  b.style.opacity=state?0.6:1;
+ });
+}
+
+/* ===== BEL FILE STABIL ===== */
+function playBel(){
+ return new Promise(resolve=>{
+
+  try{
+
+    // Buat audio baru setiap kali panggil
+    const belSound = new Audio("bel.mp4");
+    belSound.volume = 1;
+    belSound.preload = "auto";
+
+    belSound.onended = () => {
+      resolve();
+    };
+
+    belSound.onerror = () => {
+      resolve();
+    };
+
+    belSound.play().catch(()=>{
+      resolve();
+    });
+
+  }catch(e){
+    resolve();
+  }
+
+ });
+}
+
+
+
+/* ===== SPEAK ===== */
+function speak(text,lang){
+ return new Promise(resolve=>{
+
+  const waitUntilIdle = setInterval(()=>{
+    if(!speechSynthesis.speaking){
+      clearInterval(waitUntilIdle);
+
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = lang;
+      utter.rate = 0.9;
+      utter.pitch = 1.1;
+
+      utter.onend = resolve;
+      utter.onerror = resolve;
+
+      speechSynthesis.speak(utter);
+    }
+  },50);
+
+ });
+}
+
+
+/* ===== ENGINE ===== */
+async function enginePanggil(){
+ if(!bolehKontrol||isRunning||nomor===0) return;
+
+ isRunning=true;
+ lockUI(true);
+
+ try{
+  await set(layarRef,{
+   nomor:nomor.toString().padStart(3,'0'),
+   show:true,
+   durasi:15000,
+   updatedAt:Date.now()
+  });
+
+  await playBel();
+  await speak("Nomor antrian "+nomor+", silakan menuju loket pelayanan","id-ID");
+  await speak("Queue number "+nomor+", please proceed to the service counter","en-US");
+
+ }catch(e){
+  console.log("ERROR:",e);
+ }
+
+ isRunning=false;
+ lockUI(false);
+}
+
+/* BUTTON */
+document.getElementById("btnPanggil").addEventListener("click",enginePanggil);
+
+document.getElementById("btnLanjut").addEventListener("click",async()=>{
+ if(!bolehKontrol||isRunning) return;
+ nomor++;
+ await set(nomorRef,nomor);
+ refresh();
+ await enginePanggil();
+});
+
+document.getElementById("btnSetting").addEventListener("click",async()=>{
+ if(!bolehKontrol||isRunning) return;
+ const awal=prompt("Masukkan nomor awal:",nomor||1);
+ if(awal!==null&&!isNaN(awal)){
+  nomor=Number(awal);
+  await set(nomorRef,nomor);
+  refresh();
+ }
+});
+
+document.getElementById("btnInfo").addEventListener("click",()=>{
+ alert("SISTEM ANTRIAN PLN PURWAKARTA\nVersi Audio Stabil 2026");
+});
+
+/* SYNC */
+onValue(nomorRef,snap=>{
+ if(snap.exists()){
+  nomor=snap.val();
+  refresh();
+ }
+});
+
+/* LOGIN */
+async function cekPIN(){
+ const pin=prompt("Masukkan PIN Admin:");
+ const snap=await get(pinRef);
+
+ if(!snap.exists()||pin!==snap.val()){
+  alert("PIN salah!");
+  lockUI(true);
+ }else{
+  bolehKontrol=true;
+  lockUI(false);
+ }
+}
+cekPIN();
+
+refresh();
+</script>
+
+</body>
+</html>
